@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="street-segmentation-ui" content="local">
+  <title>Street segmentation</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar"><strong>Street segmentation</strong><span>GPT-6.1 Sol / High</span></header>
+  <main class="layout">
+    <section class="panel select-panel" aria-labelledby="mapsHeading">
+      <div class="panel-head"><h1 id="mapsHeading">Maps</h1><span id="selectedCount">0 selected</span></div>
+      <div class="regions" id="regions"></div>
+      <label class="search"><span class="sr-only">Search maps</span><input id="search" placeholder="Search maps" autocomplete="off"></label>
+      <div class="map-list" id="mapList"><div class="muted">Loading maps...</div></div>
+      <div class="launch-area">
+        <label for="workers">Concurrency</label>
+        <select id="workers"><option value="1">Sequential</option><option value="2">Up to 2 in parallel</option><option value="4">Up to 4 in parallel</option></select>
+        <button id="start" class="primary" disabled>Run segmentation</button>
+        <p class="tiny">Runs use the OpenAI API and incur costs.</p>
+        <div class="message" id="message" role="status"></div>
+      </div>
+    </section>
+    <section class="panel task-panel" aria-labelledby="tasksHeading">
+      <div class="panel-head"><h2 id="tasksHeading">Tasks and results</h2><span class="live">Updates every 5 seconds</span></div>
+      <div class="task-content">
+        <div class="task-sidebar"><div class="task-list-heading">Task list</div><div class="task-list" id="taskList"><div class="empty-list">No tasks yet.</div></div></div>
+        <div class="detail" id="detail"><div class="empty-detail">Select a task to view its results and workflow.</div></div>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

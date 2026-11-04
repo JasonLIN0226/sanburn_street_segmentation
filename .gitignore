@@ -1,0 +1,13 @@
+secrets/
+runs/
+__pycache__/
+*.pyc
+.ui_state/
+.venv/
+.env
+.env.*
+.DS_Store
+/maps/*
+!/maps/atlanta/
+/maps/atlanta/*
+!/maps/atlanta/304.jpg
