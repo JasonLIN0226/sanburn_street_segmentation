@@ -55,8 +55,13 @@ def setup():
 # independent case and project Python environment, and forbids network access.
 def sandbox_profile():
     def quote(p):return json.dumps(str(Path(p).resolve()))
-    home=Path.home()
-    return '(version 1)\n(allow default)\n(deny network*)\n(deny file-read* file-write* (subpath '+quote(home)+'))\n(allow file-read* file-write* (subpath '+quote(CASE)+'))\n(allow file-read* (subpath '+quote(PROJECT/'.venv')+'))\n'
+    home=Path.home().resolve()
+    ancestors=set()
+    for target in (CASE.resolve(),(PROJECT/'.venv').resolve()):
+        for parent in target.parents:
+            if parent==home or home in parent.parents:ancestors.add(parent)
+    metadata=''.join('(allow file-read-metadata (literal '+quote(parent)+'))\n' for parent in sorted(ancestors))
+    return '(version 1)\n(allow default)\n(deny network*)\n(deny file-read* file-write* (subpath '+quote(home)+'))\n'+metadata+'(allow file-read* file-write* (subpath '+quote(CASE)+'))\n(allow file-read* (subpath '+quote(PROJECT/'.venv')+'))\n'
 
 def run_command(command):
     env={k:v for k,v in os.environ.items() if not any(s in k.upper() for s in ('KEY','TOKEN','SECRET','PASSWORD','CREDENTIAL'))}
