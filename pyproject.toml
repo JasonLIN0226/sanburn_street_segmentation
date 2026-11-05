@@ -1,0 +1,16 @@
+[tool.black]
+line-length = 100
+extend-exclude = '''
+/(
+    runs
+  | workflow
+  | maps
+  | secrets
+  | \.ui_state
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_glob = ["workflow/*", "runs/*", "maps/*", "secrets/*", ".ui_state/*"]

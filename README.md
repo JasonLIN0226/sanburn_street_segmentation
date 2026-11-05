@@ -73,3 +73,14 @@ Temporary HTTP 429 rate limits are retried with backoff within configured limits
 Tests use local fixtures and do not establish segmentation accuracy. Review actual results against the source map or independent labels.
 
 For this English publication, seven tool-returned instruction messages were translated from the local workflow; segmentation logic was not changed. The translations have not been assessed in a new paid model run.
+
+## Code structure
+
+- `runner.py` prepares independent cases and coordinates the Responses API, local tools, retries, recovery, and coverage audit. `build_response_request` defines the API request; `execute_tool_call` dispatches the agent's tool calls.
+- `workflow/prompt.txt` defines the agent's labeling and review instructions. `workflow/conditional.py`, `workflow/core.py`, and `workflow/src/` implement review planning, rendering, and boundary processing.
+- `ui/server.py` serves the local interface, while `ui/worker.py` schedules each independent run. `ui/common.py` builds the map and job catalogs; `ui/storage.py` provides file helpers; `ui/usage.py` estimates API usage and cost; `ui/workflow_view.py` reconstructs saved progress.
+- `tests/` contains offline checks, including the agent/tool request protocol, recovery, scheduling, UI, and a synthetic mask build. These checks do not validate segmentation quality.
+
+Each case under `runs/` stores its source, copied workflow tools, model responses, tool results, and review artifacts. Recovery checks saved source and tool identities before resuming a confirmed rate-limit failure. Treat the workflow files and prompt as behavior-bearing: changes to them may affect reproducibility and recovery of older cases.
+
+For formatting changes to the runner, UI, and tests, the project includes configuration for Black and isort. If those development tools are installed, run `black --check runner.py ui tests` and `isort --check-only runner.py ui tests`. Workflow files are excluded from default formatting because historical recovery checks depend on their exact contents.
