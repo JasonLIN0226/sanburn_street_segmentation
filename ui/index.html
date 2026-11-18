@@ -16,6 +16,12 @@
       <label class="search"><span class="sr-only">Search maps</span><input id="search" placeholder="Search maps" autocomplete="off"></label>
       <div class="map-list" id="mapList"><div class="muted">Loading maps...</div></div>
       <div class="launch-area">
+        <label for="mode">Workflow mode</label>
+        <select id="mode" aria-describedby="modeHelp">
+          <option value="initial" selected>Initial Mask</option>
+          <option value="max">MAX Mode</option>
+        </select>
+        <p class="tiny" id="modeHelp">Generate the first mask and overlay.</p>
         <label for="workers">Concurrency</label>
         <select id="workers"><option value="1">Sequential</option><option value="2">Up to 2 in parallel</option><option value="4">Up to 4 in parallel</option></select>
         <button id="start" class="primary" disabled>Run segmentation</button>

@@ -66,7 +66,9 @@ def run_job(path):
     try:
         with log.open("w", buffering=1) as f:
             f.write("Preparing source image and workspace\n")
-            code = execute("setup", ["--source", str(src)], f)
+            code = execute(
+                "setup", ["--source", str(src), "--mode", job.get("mode", "max")], f
+            )
             if code is None:
                 return
             if code:

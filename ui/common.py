@@ -101,6 +101,7 @@ def job_snapshot(job):
     if job.get("error") in legacy_errors:
         job["error"] = legacy_errors[job["error"]]
     case = RUNS / job["case_name"]
+    job.setdefault("mode", "max")
     reqs = load_rows(case / "requests.jsonl")
     job["usage"] = cost_estimate(reqs, case)
     execution = read_json(case / "execution.json") or {}
@@ -173,6 +174,7 @@ def recovered_job(case):
         "map_path": rel,
         "map_label": source.stem or map_id,
         "region_label": REGIONS.get(region, region),
+        "mode": cfg.get("mode", "max"),
         "status": status,
         "created_at": case.stat().st_mtime,
         "error": failure.get("error"),

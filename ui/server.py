@@ -77,7 +77,7 @@ def get_job(job_id):
     return job, case
 
 
-def launch_batch(selected, workers):
+def launch_batch(selected, workers, mode="initial"):
     catalog = {x["id"]: x for x in map_catalog()}
     if (
         not isinstance(selected, list)
@@ -89,6 +89,8 @@ def launch_batch(selected, workers):
         raise ValueError("Select up to 24 distinct, available maps.")
     if type(workers) != int or workers not in (1, 2, 4):
         raise ValueError("Concurrency must be 1, 2, or 4.")
+    if mode not in ("initial", "max"):
+        raise ValueError("Choose Initial Mask or MAX Mode.")
     for d in ("jobs", "batches", "logs", "previews"):
         (STATE / d).mkdir(parents=True, exist_ok=True)
     batch_id = uuid.uuid4().hex[:16]
@@ -112,6 +114,7 @@ def launch_batch(selected, workers):
             "case_name": case_name,
             "run_id": run_id,
             "status": "queued",
+            "mode": mode,
             "created_at": created,
             "cancel_safe": True,
         }
@@ -573,7 +576,9 @@ class Handler(BaseHTTPRequestHandler):
             if n <= 0 or n > 20000:
                 raise ValueError("Invalid request size.")
             data = json.loads(self.rfile.read(n))
-            r = launch_batch(data.get("maps"), data.get("workers"))
+            r = launch_batch(
+                data.get("maps"), data.get("workers"), data.get("mode", "initial")
+            )
             return self.json(r, 202)
         except (ValueError, TypeError, json.JSONDecodeError) as e:
             return self.json({"error": str(e)}, 400)

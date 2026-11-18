@@ -28,6 +28,7 @@ PYTHON = PROJECT / ".venv/bin/python"
 CASE = ROOT / "runs/NY_8_api"
 KEY = ROOT / "secrets/openai_api_key.txt"
 MODEL = "gpt-6.1-sol"
+MODES = ("initial", "max")
 MAP_NAME = "NY_8"
 MAP_SOURCE = ROOT / "maps/new_york/8.tif"
 MAPS = {
@@ -66,7 +67,7 @@ def stage():
     )
 
 
-def setup():
+def setup(mode="initial"):
     CASE.mkdir(parents=True, exist_ok=False)
     start = time.monotonic()
     shutil.copytree(ENGINE, CASE / "src", ignore=shutil.ignore_patterns("__pycache__"))
@@ -88,6 +89,7 @@ def setup():
             "size_wh": size,
             "model": MODEL,
             "effort": "high",
+            "mode": mode,
             "source_original": str(source),
         },
     )
@@ -116,6 +118,15 @@ def setup():
     ]
     save(CASE / "source_batches.json", batches)
     original = (ROOT / "workflow/prompt.txt").read_text().format(py=str(PYTHON))
+    if mode == "initial":
+        initial, marker, _ = original.partition("\n3 FIRST_REVIEW:")
+        if not marker:
+            raise ValueError("Missing first-review stage in workflow prompt")
+        original = initial.rstrip() + (
+            "\n\nInitial Mask mode ends after build inventory_r1 succeeds. "
+            "The runner exports the initial mask and overlay after checking source coverage. "
+            "Do not start visual review or build another revision.\n"
+        )
     original = original.replace(
         "In a functions.exec call, await Promise.all of tools.view_image for that group's paths then emit each returned image with image(result.image_url). Never print image URLs/base64 as text. This is concurrent local image loading, not multiple model agents.",
         "Call the view_images function for that group, up to four image paths. It returns actual image content and metadata. Call run_command to inspect and write files or run conditional.py.",
@@ -492,7 +503,8 @@ def post(key, payload, max_attempts=12, max_wait=240):
 def audit():
     state = json.loads((CASE / "run/maps" / MAP_NAME / "workflow.json").read_text())
     ids = {t["id"] for t in state["tiles"]}
-    rows = [json.loads(x) for x in (CASE / "image_receipts.jsonl").read_text().splitlines()]
+    receipts = CASE / "image_receipts.jsonl"
+    rows = [json.loads(x) for x in receipts.read_text().splitlines()] if receipts.exists() else []
     src = set()
     first = set()
     for row in rows:
@@ -513,6 +525,35 @@ def audit():
     }
     save(CASE / "coverage_audit.json", summary)
     return summary
+
+
+def publish_initial(revision, coverage, config):
+    mask = revision / "mask.png"
+    with Image.open(mask) as image:
+        if image.format != "PNG" or image.mode != "L" or list(image.size) != config["size_wh"]:
+            raise ValueError("Initial mask does not match the native source dimensions or format")
+        image.verify()
+    for name in ("mask.png", "overlay.jpg", "overview.jpg"):
+        shutil.copyfile(revision / name, CASE / name)
+    save(
+        CASE / "summary.json",
+        {
+            "map": config["map"],
+            "mode": "initial",
+            "selected_revision": revision.name,
+            "review_mode": "initial_only",
+            "source_tiles": coverage["expected_tiles"],
+            "mask_sha256": digest(mask),
+            "notice": "Initial street mask rendered after source review. Visual QA was skipped.",
+        },
+    )
+    coverage["summary_exists"] = True
+    coverage["first_review_required"] = False
+    save(CASE / "coverage_audit.json", coverage)
+    append(
+        CASE / "stages.jsonl",
+        {"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "stage": "complete"},
+    )
 
 
 def recovery_continuation():
@@ -675,6 +716,9 @@ def execute_tool_call(call, sequence):
 def run(resume=False):
     if not resume and (CASE / "requests.jsonl").exists():
         raise RuntimeError("Case already has API requests; choose a new --run-id.")
+    config = json.loads((CASE / "config.json").read_text())
+    mode = config.get("mode", "max")
+    initial_revision = CASE / "run/maps" / MAP_NAME / "tools/inventory_r1"
     if resume:
         recovered = recovery_continuation()
         prev = recovered["previous_response_id"]
@@ -745,34 +789,36 @@ def run(resume=False):
             raise RuntimeError("API response incomplete; inspect response " + str(i))
         prev = r["id"]
         calls = [x for x in r.get("output", []) if x.get("type") == "function_call"]
-        if not calls:
-            a = audit()
-            if not a["summary_exists"] or a["source_missing"] or a["first_review_missing"]:
-                inputs = [
-                    {
-                        "role": "user",
-                        "content": "Workflow is not complete; coverage audit: "
-                        + json.dumps(a)
-                        + ". Inspect missing tiles or complete finish, without inventing observations.",
-                    }
-                ]
-                if i > 180:
-                    raise RuntimeError("workflow incomplete after 180 requests")
-                continue
-            save(
-                CASE / "execution.json",
-                {
-                    "status": "completed",
-                    "seconds": time.monotonic() - started,
-                    "seconds_scope": "resume segment" if resume else "full agent run",
-                    "resumed": resume,
-                    "requests": i,
-                    "coverage": a,
-                },
-            )
-            print("workflow complete; visual independent review still required", flush=True)
-            return
         inputs = [execute_tool_call(call, i) for call in calls]
+        initial_built = mode == "initial" and all(
+            (initial_revision / name).is_file()
+            for name in ("mask.png", "overlay.jpg", "overview.jpg", "proposal.json")
+        )
+        if initial_built or not calls:
+            coverage = audit()
+            if mode == "initial":
+                if initial_built and not coverage["source_missing"]:
+                    publish_initial(initial_revision, coverage, config)
+                    break
+                instruction = (
+                    "View missing original tiles during source_review and complete the "
+                    "inventory_r1 build. Initial Mask mode ends there."
+                )
+            elif (
+                coverage["summary_exists"]
+                and not coverage["source_missing"]
+                and not coverage["first_review_missing"]
+            ):
+                break
+            else:
+                instruction = "Inspect missing tiles or complete finish, without inventing observations."
+            inputs.append(
+                {
+                    "role": "user",
+                    "content": f"Workflow is incomplete. Coverage audit: {json.dumps(coverage)}. "
+                    + instruction,
+                }
+            )
         if i % 5 == 0:
             print(
                 "responses:",
@@ -785,6 +831,24 @@ def run(resume=False):
             )
         if i >= 180:
             raise RuntimeError("180-request limit reached; preserve partial artifacts")
+    save(
+        CASE / "execution.json",
+        {
+            "status": "completed",
+            "mode": mode,
+            "seconds": time.monotonic() - started,
+            "seconds_scope": "resume segment" if resume else "full agent run",
+            "resumed": resume,
+            "requests": i,
+            "coverage": coverage,
+        },
+    )
+    print(
+        "initial mask complete"
+        if mode == "initial"
+        else "workflow complete; visual independent review still required",
+        flush=True,
+    )
 
 
 def main():
@@ -800,7 +864,10 @@ def main():
     p.add_argument(
         "--run-id", default="", help="Optional unique suffix to avoid overwriting another run"
     )
+    p.add_argument("--mode", choices=MODES, help="Setup mode. Default: initial.")
     a = p.parse_args()
+    if a.mode and a.action != "setup":
+        p.error("--mode is set at setup")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", a.map) or (
         a.run_id and not re.fullmatch(r"[A-Za-z0-9_-]+", a.run_id)
     ):
@@ -816,7 +883,7 @@ def main():
     if a.action == "setup" and not MAP_SOURCE.is_file():
         p.error("source image does not exist")
     if a.action == "setup":
-        setup()
+        setup(a.mode or "initial")
     elif a.action == "sandbox-test":
         sandbox_test()
     elif a.action == "audit":

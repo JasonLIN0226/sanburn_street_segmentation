@@ -19,10 +19,10 @@ import worker
 
 FAKE = """import argparse,json,time
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('action');p.add_argument('--map',required=True);p.add_argument('--run-id',required=True);p.add_argument('--source');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('action');p.add_argument('--map',required=True);p.add_argument('--run-id',required=True);p.add_argument('--source');p.add_argument('--mode');a=p.parse_args()
 r=Path(__file__).parent/'runs'/(a.map+'_api_'+a.run_id)
 if a.action=='setup':
- r.mkdir(parents=True);(r/'config.json').write_text(json.dumps({'map':a.map}));time.sleep(.2)
+ r.mkdir(parents=True);(r/'config.json').write_text(json.dumps({'map':a.map,'mode':a.mode}));time.sleep(.2)
 else:
  start=time.time();time.sleep(.35);end=time.time();(r/'mask.png').write_bytes(b'fake')
  (r/'execution.json').write_text(json.dumps({'status':'completed','fake_start':start,'fake_end':end}));(r/'summary.json').write_text('{}')
@@ -115,6 +115,7 @@ class WorkerTest(unittest.TestCase):
                             "run_id": rid,
                             "case_name": name + "_api_" + rid,
                             "status": "queued",
+                            "mode": "initial" if k == 0 else "max",
                         }
                         common.atomic_json(state / "jobs" / (jid + ".json"), job)
                     bid = f"{parallel}" + "b" * 15
@@ -124,6 +125,8 @@ class WorkerTest(unittest.TestCase):
                     worker.run_batch(bid)
                     jobs = [common.read_json(state / "jobs" / (x + ".json")) for x in ids]
                     self.assertTrue(all(j["status"] == "completed" for j in jobs))
+                    configs = [common.read_json(runs / j["case_name"] / "config.json") for j in jobs]
+                    self.assertEqual([c["mode"] for c in configs], ["initial", "max"])
                     e = [common.read_json(runs / j["case_name"] / "execution.json") for j in jobs]
                     overlap = max(x["fake_start"] for x in e) < min(x["fake_end"] for x in e)
                     self.assertEqual(overlap, parallel == 2)
@@ -155,7 +158,11 @@ class ServerTest(unittest.TestCase):
                 )
                 with urllib.request.urlopen(req) as r:
                     self.assertEqual(r.status, 202)
-                mock.assert_called_once_with(["new_york/8.tif"], 2)
+                mock.assert_called_once_with(["new_york/8.tif"], 2, "initial")
+                req.data = json.dumps({"maps": ["new_york/8.tif"], "workers": 2, "mode": "max"}).encode()
+                with urllib.request.urlopen(req) as r:
+                    self.assertEqual(r.status, 202)
+                mock.assert_called_with(["new_york/8.tif"], 2, "max")
             with self.assertRaises(urllib.error.HTTPError) as e:
                 urllib.request.urlopen(base + "/secrets/openai_api_key.txt")
             self.assertEqual(e.exception.code, 404)

@@ -28,7 +28,7 @@ class CancellationTest(unittest.TestCase):
             (root / "maps/map.png").write_bytes(b"map")
             script = root / "fake_runner.py"
             script.write_text(
-                """import argparse,json,time\nfrom pathlib import Path\np=argparse.ArgumentParser();p.add_argument("action");p.add_argument("--map");p.add_argument("--run-id");p.add_argument("--source");a=p.parse_args()\nr=Path(__file__).parent/"runs"/(a.map+"_api_"+a.run_id)\nif a.action=="setup":r.mkdir(parents=True)\nelse:\n time.sleep(1.5);(r/"mask.png").write_bytes(b"mask");(r/"execution.json").write_text(json.dumps({"status":"completed"}))\n"""
+                """import argparse,json,time\nfrom pathlib import Path\np=argparse.ArgumentParser();p.add_argument("action");p.add_argument("--map");p.add_argument("--run-id");p.add_argument("--source");p.add_argument("--mode");a=p.parse_args()\nr=Path(__file__).parent/"runs"/(a.map+"_api_"+a.run_id)\nif a.action=="setup":r.mkdir(parents=True)\nelse:\n time.sleep(1.5);(r/"mask.png").write_bytes(b"mask");(r/"execution.json").write_text(json.dumps({"status":"completed"}))\n"""
             )
             ids = ["1" * 16, "2" * 16]
             bid = "b" * 16

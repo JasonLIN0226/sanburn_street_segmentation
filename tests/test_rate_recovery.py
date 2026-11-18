@@ -110,7 +110,7 @@ class RecoveryTest(unittest.TestCase):
         runner.CASE = root / "case"
         runner.MAP_NAME = "TEST"
         runner.MAP_SOURCE = source
-        runner.setup()
+        runner.setup("max")
         case = runner.CASE
         (case / "stages.jsonl").write_text('{"stage":"first_review"}\n')
         (case / "failure.json").write_text(
@@ -154,6 +154,9 @@ class RecoveryTest(unittest.TestCase):
     def test_saved_command_continues_without_reexecution(self):
         with tempfile.TemporaryDirectory() as d:
             case, output = self.make_case(d)
+            config = json.loads((case / "config.json").read_text())
+            config.pop("mode")
+            runner.save(case / "config.json", config)
             cont = runner.recovery_continuation()
             self.assertEqual(json.loads(cont["inputs"][0]["output"]), output)
             response = {

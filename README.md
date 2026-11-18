@@ -49,7 +49,10 @@ Double-click `openUI.command`, or run:
 ../.venv/bin/python ui/server.py
 ```
 
-Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/), select maps, choose concurrency, and start the workflow. Select a task to see its progress, original image, overlay, mask, recorded token use, elapsed time, and estimated cost. Estimates are not account invoices. The process view shows saved updates, not token-by-token streaming.
+Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/), select maps, choose a workflow mode and concurrency, and start the workflow. Select a task to see its progress, original image, overlay, mask, recorded token use, elapsed time, and estimated cost. Estimates are not account invoices. The process view shows saved updates, not token-by-token streaming.
+
+- **Initial Mask** is the default. The agent reviews the source, then the workflow exports the first mask and overlay (`inventory_r1`).
+- **MAX Mode** adds visual review, revisions where needed, and final checks before exporting the selected mask and overlay.
 
 Results and logs are saved in `runs/<case>/`, including `source.png`, `mask.png`, `overlay.jpg`, `summary.json`, and usage records. `Hide` keeps files; `Delete files` permanently removes a selected inactive case after confirmation. Closing the browser does not itself stop launched jobs.
 
@@ -61,6 +64,8 @@ Use a new map ID and run ID for each case. Setup is local; `run` makes paid API 
 ../.venv/bin/python runner.py setup --map ATLANTA_304 --source maps/atlanta/304.jpg --run-id first
 ../.venv/bin/python runner.py run --map ATLANTA_304 --run-id first
 ```
+
+This starts in Initial Mask mode. To run the full review workflow, set `--mode max` on the `setup` command. The chosen mode is saved with the case.
 
 Temporary HTTP 429 rate limits are retried with backoff within configured limits. Some verified 429 failures can be resumed with `runner.py resume`; other failures may not be safely resumable.
 

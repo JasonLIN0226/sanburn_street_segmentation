@@ -16,10 +16,10 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 FAKE = """import argparse,json,shutil,time
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('action');p.add_argument('--map',required=True);p.add_argument('--run-id',required=True);p.add_argument('--source');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('action');p.add_argument('--map',required=True);p.add_argument('--run-id',required=True);p.add_argument('--source');p.add_argument('--mode');a=p.parse_args()
 root=Path(__file__).parent;case=root/'runs'/(a.map+'_api_'+a.run_id)
 if a.action=='setup':
- case.mkdir(parents=True);shutil.copyfile(a.source,case/'source.png');(case/'config.json').write_text('{}');(case/'setup.json').write_text('{"seconds":0.1}')
+ case.mkdir(parents=True);shutil.copyfile(a.source,case/'source.png');(case/'config.json').write_text(json.dumps({'mode':a.mode}));(case/'setup.json').write_text('{"seconds":0.1}')
 else:
  time.sleep(1);shutil.copyfile(case/'source.png',case/'overlay.jpg');shutil.copyfile(case/'source.png',case/'mask.png');(case/'responses').mkdir()
  (case/'responses/0001.json').write_text('{"service_tier":"default"}')
@@ -84,6 +84,7 @@ class FullUiTest(unittest.TestCase):
                         break
                     time.sleep(0.15)
                 self.assertEqual(job["status"], "completed", job)
+                self.assertEqual(job["mode"], "initial")
                 self.assertEqual(job["usage"]["tokens"], 11000)
                 self.assertAlmostEqual(job["usage"]["cost_usd"], 0.0277)
                 for kind in ("source", "overlay", "mask"):
