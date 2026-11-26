@@ -154,9 +154,14 @@ class RecoveryTest(unittest.TestCase):
     def test_saved_command_continues_without_reexecution(self):
         with tempfile.TemporaryDirectory() as d:
             case, output = self.make_case(d)
+            Image.new("L", (100, 100)).save(case / "mask.png")
             config = json.loads((case / "config.json").read_text())
             config.pop("mode")
+            config.update(model="gpt-6.1-sol", effort="high")
             runner.save(case / "config.json", config)
+            setup = json.loads((case / "setup.json").read_text())
+            setup.pop("agent")
+            runner.save(case / "setup.json", setup)
             cont = runner.recovery_continuation()
             self.assertEqual(json.loads(cont["inputs"][0]["output"]), output)
             response = {
@@ -184,6 +189,8 @@ class RecoveryTest(unittest.TestCase):
                 body = post.call_args.args[1]
                 self.assertEqual(body["previous_response_id"], "resp_last")
                 self.assertEqual(json.loads(body["input"][0]["output"]), output)
+                self.assertEqual(body["model"], "gpt-6.1-sol")
+                self.assertEqual(body["reasoning"], {"effort": "high"})
             self.assertTrue((case / "execution.json").exists())
             self.assertEqual(len((case / "requests.jsonl").read_text().splitlines()), 2)
             self.assertFalse((case / "failure.json").exists())

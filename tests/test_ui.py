@@ -36,11 +36,11 @@ class CostTest(unittest.TestCase):
                 "id": "a" * 16,
                 "case_name": "case",
                 "map_path": "new_york/9.tif",
-                "region_label": "\u7ebd\u7ea6",
+                "region_label": "纽约",
                 "status": "completed",
             }
             self.assertEqual(common.job_snapshot(job)["region_label"], "New York")
-            self.assertEqual(job["region_label"], "\u7ebd\u7ea6")
+            self.assertEqual(job["region_label"], "纽约")
 
     def test_short_and_long_context_cache_rates(self):
         with tempfile.TemporaryDirectory() as t:
@@ -68,6 +68,8 @@ class CostTest(unittest.TestCase):
             x = common.cost_estimate(rows, r)
             self.assertAlmostEqual(x["cost_usd"], 4.34)
             self.assertEqual(x["tokens"], 1020000)
+            rows[0]["model"] = "gpt-6.2-sol"
+            self.assertEqual(common.cost_estimate(rows, r), x)
 
     def test_unknown_model_or_missing_usage_is_not_a_fake_cost(self):
         with tempfile.TemporaryDirectory() as t:
@@ -125,7 +127,9 @@ class WorkerTest(unittest.TestCase):
                     worker.run_batch(bid)
                     jobs = [common.read_json(state / "jobs" / (x + ".json")) for x in ids]
                     self.assertTrue(all(j["status"] == "completed" for j in jobs))
-                    configs = [common.read_json(runs / j["case_name"] / "config.json") for j in jobs]
+                    configs = [
+                        common.read_json(runs / j["case_name"] / "config.json") for j in jobs
+                    ]
                     self.assertEqual([c["mode"] for c in configs], ["initial", "max"])
                     e = [common.read_json(runs / j["case_name"] / "execution.json") for j in jobs]
                     overlap = max(x["fake_start"] for x in e) < min(x["fake_end"] for x in e)
@@ -159,7 +163,9 @@ class ServerTest(unittest.TestCase):
                 with urllib.request.urlopen(req) as r:
                     self.assertEqual(r.status, 202)
                 mock.assert_called_once_with(["new_york/8.tif"], 2, "initial")
-                req.data = json.dumps({"maps": ["new_york/8.tif"], "workers": 2, "mode": "max"}).encode()
+                req.data = json.dumps(
+                    {"maps": ["new_york/8.tif"], "workers": 2, "mode": "max"}
+                ).encode()
                 with urllib.request.urlopen(req) as r:
                     self.assertEqual(r.status, 202)
                 mock.assert_called_with(["new_york/8.tif"], 2, "max")

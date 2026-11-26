@@ -1,0 +1,169 @@
+[
+  {
+    "description": "Run local shell command in independent case; return stdout, stderr and exit code. Use this to read and write files and invoke original renderer.",
+    "name": "run_command",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "strict": true,
+    "type": "function"
+  },
+  {
+    "description": "Actually view one to four local images from the case, including native source, overlay and detail crops. Returns image pixels and metadata.",
+    "name": "view_images",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "strict": true,
+    "type": "function"
+  },
+  {
+    "description": "Save one group of native tile observations and receive the next group of images. Start with batch 0 and empty observations.",
+    "name": "record_source_batch",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "batch": {
+          "type": "integer"
+        },
+        "observations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "edge": {
+                "type": "string"
+              },
+              "nonroad": {
+                "type": "string"
+              },
+              "observation": {
+                "type": "string"
+              },
+              "roads": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "tile_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tile_id",
+              "roads",
+              "observation",
+              "nonroad",
+              "edge"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "batch",
+        "observations"
+      ],
+      "type": "object"
+    },
+    "strict": true,
+    "type": "function"
+  },
+  {
+    "description": "Merge saved observations and render inventory_r1. Roads are unioned. Each polygon follows both banks in perimeter order. Integer radius is the native-pixel search distance for snapping to dark ink (e.g. 12). fixed_edges are zero-based starting vertex indices to keep straight without snapping. Exclusions are subtracted after union. Geometry and exit evidence come from your source views.",
+    "name": "submit_roads",
+    "parameters": {
+      "properties": {
+        "aliases": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "exclusions": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "roads": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "unresolved": {
+          "items": {},
+          "type": "array"
+        }
+      },
+      "required": [
+        "roads",
+        "exclusions",
+        "unresolved"
+      ],
+      "type": "object"
+    },
+    "strict": false,
+    "type": "function"
+  },
+  {
+    "description": "Inspect one to four original crops. Each box is [left,top,right,bottom] in native pixels, right/bottom exclusive. Returns original offsets and image content.",
+    "name": "view_source_details",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "regions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "box": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "box"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "regions"
+      ],
+      "type": "object"
+    },
+    "strict": true,
+    "type": "function"
+  }
+]

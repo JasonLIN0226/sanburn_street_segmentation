@@ -4,7 +4,8 @@ from pathlib import Path
 
 from storage import read_json
 
-MODEL = "gpt-6.1-sol"
+MODEL = "gpt-6.2-sol"
+SOL_STANDARD_MODELS = ("gpt-6.1-sol", MODEL)
 PRICE = {"input": 2.0, "cached": 0.10, "write_30m": 2.50, "write_12h": 5.0, "output": 10.0}
 
 
@@ -46,7 +47,7 @@ def cost_estimate(rows, case):
         total_out += out
         cached += read
         writes += write
-        if row.get("model") != MODEL:
+        if row.get("model") not in SOL_STANDARD_MODELS:
             complete = False
             notes.add("Unknown model or pricing")
             continue

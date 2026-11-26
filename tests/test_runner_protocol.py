@@ -4,7 +4,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("protocol_runner", ROOT / "runner.py")
@@ -13,6 +13,21 @@ spec.loader.exec_module(runner)
 
 
 class RunnerProtocolTest(unittest.TestCase):
+    def test_transient_empty_instruction_read_is_retried_before_submission(self):
+        path = Mock()
+        policy = "街道".encode("utf-8")
+        path.stat.return_value.st_size = len(policy)
+        path.read_bytes.side_effect = [b"", policy]
+        with patch.object(runner.time, "sleep"):
+            self.assertEqual(runner.read_instructions(path), "街道")
+        self.assertEqual(path.read_bytes.call_count, 2)
+        path.read_bytes.side_effect = [b"", b"", b""]
+        with patch.object(runner.time, "sleep"), self.assertRaises(OSError):
+            runner.read_instructions(path)
+        path.read_bytes.side_effect = [policy]
+        with self.assertRaisesRegex(ValueError, "Prepared instructions changed"):
+            runner.read_instructions(path, "different")
+
     def test_request_keeps_agent_configuration_and_continuation(self):
         inputs = [{"type": "function_call_output", "call_id": "call_1", "output": "ok"}]
         first = runner.build_response_request(inputs, None)
@@ -20,10 +35,25 @@ class RunnerProtocolTest(unittest.TestCase):
         self.assertEqual(first["input"], inputs)
         self.assertNotIn("previous_response_id", first)
         self.assertEqual(resumed["previous_response_id"], "response_1")
-        self.assertEqual(resumed["model"], "gpt-6.1-sol")
-        self.assertEqual(resumed["reasoning"], {"effort": "high"})
+        self.assertEqual(resumed["model"], "gpt-6.2-sol")
+        self.assertEqual(resumed["reasoning"], {"effort": "medium"})
         self.assertFalse(resumed["parallel_tool_calls"])
         self.assertEqual(resumed["tools"], runner.TOOLS)
+
+    def test_initial_and_max_expose_their_native_tools(self):
+        for mode in ("initial", "max"):
+            body = runner.build_response_request(
+                [],
+                None,
+                case_tools=json.loads((ROOT / "workflow/api_tools.json").read_text()),
+                mode=mode,
+            )
+            names = {tool["name"] for tool in body["tools"]}
+            self.assertTrue(
+                {"view_images", "record_source_batch", "view_source_details", "submit_roads"}
+                <= names
+            )
+            self.assertEqual("run_command" in names, mode == "max")
 
     def test_command_output_and_artifact_snapshot_are_preserved(self):
         call = {

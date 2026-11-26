@@ -64,12 +64,12 @@ def next_task(work):
  s=verified(work)
  if s['phase']=='source':
   tile=next((t for t in s['tiles'] if t['source_status']!='checked'),None)
-  if tile:return {'stage':'source_only','tile':tile,**make_crop(work,s,tile),'instructions':'Inspect the original image. Record roads, non-roads, obstacles, every map edge, and every corner; do not use the mask.'}
-  return {'stage':'reconcile_inventory','instructions':'Reconcile roads across tiles and list every exit, obstacle, and unresolved issue.'}
- if s['phase']=='tools':return {'stage':'tools','roads':s['roads'],'unresolved':s['unresolved'],'instructions':'Generate candidates by road_id for selection by the visual agent; do not silently discard unconfirmed issues.'}
+  if tile:return {'stage':'source_only','tile':tile,**make_crop(work,s,tile),'instructions':'看原图，记录道路、非道路、障碍、每个纸边和角落；不要使用 mask。'}
+  return {'stage':'reconcile_inventory','instructions':'合并跨图块道路，列明每个出口、障碍与仍未解决事项。'}
+ if s['phase']=='tools':return {'stage':'tools','roads':s['roads'],'unresolved':s['unresolved'],'instructions':'按 road_id 生成候选并由视觉 agent 选择；未确认问题不得静默消除。'}
  if s['phase']=='qa':
   tile=next((t for t in s['tiles'] if t['qa_status']!='checked'),None)
-  if tile:return {'stage':'mask_qa','tile':tile,**make_crop(work,s,tile,True),'source_crop':str(Path(work)/'source_tiles'/(tile['id']+'.png')),'candidate_sha256':s['candidate_sha256'],'instructions':'Compare against the original for omissions, spillover, seams, and edges; record evidence and do not assume a pass.'}
+  if tile:return {'stage':'mask_qa','tile':tile,**make_crop(work,s,tile,True),'source_crop':str(Path(work)/'source_tiles'/(tile['id']+'.png')),'candidate_sha256':s['candidate_sha256'],'instructions':'对照原图检查漏标、溢出、接缝和边缘；记录证据，不得默认通过。'}
   return {'stage':'review_unresolved','unresolved':s['unresolved']}
  return {'stage':s['phase']}
 
@@ -121,7 +121,7 @@ def create_proposal(work,road_id,request):
  for side in ['low','high']:
   for item in proposal['candidates'][side]:
    q=im.copy();t=range(request['spec']['span'][0],request['spec']['span'][1]+1);pts=[(int(v),int(z)) if request['spec']['axis']=='y' else (int(z),int(v)) for z,v in zip(t,paths[item['id']])];ImageDraw.Draw(q).line(pts,fill='#00ffff',width=3);q.save(out/(item['id']+'.png'))
- return {'task':name,'source':str(out/'source.png'),'proposal':str(out/'proposal.json'),'proposal_sha256':spec_hash(proposal),'note':'The visual agent must inspect candidates before selecting; do not automatically choose the highest-scoring line.'}
+ return {'task':name,'source':str(out/'source.png'),'proposal':str(out/'proposal.json'),'proposal_sha256':spec_hash(proposal),'note':'视觉 agent 必须查看候选再选择；不自动选择得分最高的线。'}
 
 def propose_object(work,task_id,request):
  work=Path(work);s=verified(work);out=work/'tools'/safe_id(task_id)
@@ -134,7 +134,7 @@ def propose_object(work,task_id,request):
  target.mkdir();Image.fromarray(negative.astype('uint8')*255).save(target/'negative.png')
  a=rgb.astype(float);a[negative]=a[negative]*.4+np.array([255,40,30])*.6;Image.fromarray(a.astype('uint8')).save(target/'preview.png')
  meta={'id':name,'task_id':task_id,'candidate_before_sha256':s['candidate_sha256'],'source_sha256':s['source_sha256'],'negative_sha256':sha(target/'negative.png'),'preview_sha256':sha(target/'preview.png'),'info':info,'request':request};save(target/'proposal.json',meta)
- return {'proposal':str(target/'proposal.json'),'preview':str(target/'preview.png'),'proposal_sha256':spec_hash(meta),'preview_sha256':meta['preview_sha256'],'note':'Review the red region against the original image before confirming.'}
+ return {'proposal':str(target/'proposal.json'),'preview':str(target/'preview.png'),'proposal_sha256':spec_hash(meta),'preview_sha256':meta['preview_sha256'],'note':'先对照原图审查红色区域，再提交确认。'}
 
 def apply_task(work,task_id,selection,objects):
  work=Path(work);s=verified(work)
@@ -175,7 +175,7 @@ def extend_task(work,request):
  full[y0:y1,x0:x1]=fixed;state=np.asarray(Image.open(work/'state.png').convert('L')).copy();st=state[y0:y1,x0:x1];st[unc>0]=2
  out.mkdir();save(out/'request.json',request);Image.fromarray(unc).save(out/'uncertainty.png');Image.fromarray(full*255).save(work/'candidate.png');Image.fromarray(state).save(work/'state.png');s['candidate_sha256']=sha(work/'candidate.png')
  s['tasks'].append({'task_id':name,'road_id':request['road_id'],'box':box,'kind':'exit_extension','meta':meta,'candidate_sha256':s['candidate_sha256']})
- if decision['boundary_kind']=='crop':s['unresolved'].append({'type':'crop_boundary','task':name,'evidence':'The extension reaches only the crop boundary; the continuation on the original map has not been checked.'})
+ if decision['boundary_kind']=='crop':s['unresolved'].append({'type':'crop_boundary','task':name,'evidence':'延伸仅至裁片边，原地图继续部分尚未核查。'})
  save(out/'audit.json',s['tasks'][-1]);save(work/'workflow.json',s);return {'candidate':str(work/'candidate.png'),'status':'inferred_needs_visual_QA','meta':meta}
 
 def begin_qa(work):
