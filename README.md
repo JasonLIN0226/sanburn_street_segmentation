@@ -4,7 +4,7 @@ An agent workflow for labeling streets on historical maps. The local UI lets you
 
 ## 1. Set up the environment
 
-The current runner requires macOS and uses `sandbox-exec`. Clone this repository inside your home directory. From the repository root, create the Python environment in its parent directory and install the dependencies:
+The current runner requires macOS and Python 3.11 or newer. It uses `sandbox-exec`. Clone this repository inside your home directory. From the repository root, create the Python environment in its parent directory and install the dependencies:
 
 ```bash
 python3 -m venv ../.venv
@@ -51,10 +51,12 @@ Double-click `openUI.command`, or run:
 
 Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/), select maps, choose a workflow mode and concurrency, and start the workflow. Select a task to see its progress, original image, overlay, mask, recorded token use, elapsed time, and estimated cost. Estimates are not account invoices. The process view shows saved updates, not token-by-token streaming.
 
-- **Initial Mask** is the default, using the November 22 independent-path revision (`scoped_paths_20261122`) with 6.2 Sol and medium reasoning. The agent assesses dashed minor branches outside the parent street, traces the full supported width of established streets, and carries confirmed sheet exits to the mapped edge. The first successful build with complete source coverage exports the mask and overlay. An invalid submission returns a tool error and can take another model call to correct.
+- **Initial Mask** is the default, using the November 22 independent-path revision (`scoped_paths_20261122`) with 6.2 Sol and medium reasoning. The agent assesses dashed minor branches outside the parent street, traces the full supported width of established streets, and carries confirmed sheet exits to the mapped edge. The first successful build with complete source coverage exports the mask, overlay and LabelMe annotation. An invalid submission returns a tool error and can take another model call to correct.
 - **MAX Mode** adds visual review, revisions where needed, and final checks before exporting the selected mask and overlay.
 
 Results and logs are saved in `runs/<case>/`, including `source.png`, `mask.png`, `overlay.jpg`, `summary.json`, and usage records. `Hide` keeps files; `Delete files` permanently removes a selected inactive case after confirmation. Closing the browser does not itself stop launched jobs.
+
+Both modes export `labelme.json` beside the selected `mask.png`. The JSON references `source.png` in the same directory. It stores all foreground pixels in one native `st1` mask, including disconnected streets and interior gaps. An empty result has an empty shape list. In the results UI, choose **Download LabelMe JSON** and download **source.png** from the Source tab into the same directory.
 
 Initial Mask records possible gaps at street merges in `summary.json` under `review_locations`. Each finding links to a side-by-side crop showing the original on the left and the submitted mask overlay on the right. This local check looks for converging inferred banks, a visible block end and an excluded footprint inside the gap. It runs during export without another model request.
 
@@ -72,6 +74,18 @@ Use a new map ID and run ID for each case. Setup is local; `run` makes paid API 
 This starts in Initial Mask mode. To run the full review workflow, set `--mode max` on the `setup` command. The chosen mode is saved with the case.
 
 Temporary HTTP 429 rate limits are retried with backoff within configured limits. Some verified 429 failures can be resumed with `runner.py resume`; other failures may not be safely resumable.
+
+## Edit a mask in LabelMe
+
+Open the exported JSON in LabelMe to review the mask. To paint or erase street pixels, install the optional editor in a separate environment. The brush uses LabelMe 7.11.0. From the repository root:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install 'labelme==7.11.0'
+./openLabelMeBrush.command "runs/YOUR_CASE/labelme.json"
+```
+
+Replace `YOUR_CASE` with your run directory. Double-clicking the launcher also opens the editor. If you already installed the pinned version in another environment, set `LABELME_PYTHON` to its Python executable. To export an older run separately, run `../.venv/bin/python export_labelme.py "runs/YOUR_CASE"`. This creates a review copy under `labelme/` and preserves any existing review.
 
 ## Offline checks
 

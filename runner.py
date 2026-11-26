@@ -22,6 +22,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from export_labelme import write_mask_json
+
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT.parent
 DEFAULT_WORKFLOW = "scoped_paths_20261122"
@@ -981,6 +983,7 @@ def run(resume=False):
             )
         if i >= 180:
             raise RuntimeError("180-request limit reached; preserve partial artifacts")
+    write_mask_json(CASE / "mask.png", CASE / "source.png", CASE / "labelme.json")
     save(
         CASE / "execution.json",
         {

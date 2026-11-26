@@ -192,6 +192,7 @@ class RecoveryTest(unittest.TestCase):
                 self.assertEqual(body["model"], "gpt-6.1-sol")
                 self.assertEqual(body["reasoning"], {"effort": "high"})
             self.assertTrue((case / "execution.json").exists())
+            self.assertEqual(json.loads((case / "labelme.json").read_text())["shapes"], [])
             self.assertEqual(len((case / "requests.jsonl").read_text().splitlines()), 2)
             self.assertFalse((case / "failure.json").exists())
 

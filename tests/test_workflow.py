@@ -130,6 +130,17 @@ class IndependentWorkflowTest(unittest.TestCase):
             self.assertTrue(mask.exists())
             self.assertEqual(mask.read_bytes(), (runner.CASE / "mask.png").read_bytes())
             self.assertTrue((runner.CASE / "overlay.jpg").is_file())
+            labelme = json.loads((runner.CASE / "labelme.json").read_text())
+            self.assertEqual(labelme["imagePath"], "source.png")
+            [shape] = labelme["shapes"]
+            self.assertEqual((shape["label"], shape["shape_type"]), ("st1", "mask"))
+            with Image.open(BytesIO(base64.b64decode(shape["mask"]))) as crop:
+                restored = Image.new("L", (labelme["imageWidth"], labelme["imageHeight"]))
+                (x, y), (right, bottom) = shape["points"]
+                self.assertEqual(crop.size, (right - x + 1, bottom - y + 1))
+                restored.paste(crop.point(lambda value: 255 if value else 0), (x, y))
+            with Image.open(mask) as expected:
+                self.assertEqual(restored.tobytes(), expected.tobytes())
             self.assertFalse((runner.CASE / "qa_r1.json").exists())
             execution = json.loads((runner.CASE / "execution.json").read_text())
             self.assertEqual(execution["status"], "completed")

@@ -23,6 +23,7 @@ if a.action=='setup':
 else:
  time.sleep(1);shutil.copyfile(case/'source.png',case/'overlay.jpg');shutil.copyfile(case/'source.png',case/'mask.png');(case/'responses').mkdir()
  (case/'responses/0001.json').write_text('{"service_tier":"default"}')
+ (case/'labelme.json').write_text(json.dumps({'imagePath':'source.png','shapes':[]}))
  row={'seq':1,'model':'gpt-6.1-sol','usage':{'input_tokens':10000,'output_tokens':1000,'input_tokens_details':{'cached_tokens':2000,'cache_write_tokens':3000}}}
  (case/'requests.jsonl').write_text(json.dumps(row)+'\\n');(case/'summary.json').write_text('{}');(case/'execution.json').write_text('{"status":"completed","seconds":1}')
 """
@@ -94,6 +95,11 @@ class FullUiTest(unittest.TestCase):
                 with urllib.request.urlopen(base + f"/api/download/{jid}/mask") as r:
                     self.assertEqual(r.status, 200)
                     self.assertIn("attachment", r.headers["Content-Disposition"])
+                self.assertTrue(job["files"]["labelme.json"])
+                with urllib.request.urlopen(base + f"/api/download/{jid}/labelme") as r:
+                    self.assertEqual(r.headers.get_content_type(), "application/json")
+                    self.assertEqual(r.headers.get_filename(), "labelme.json")
+                    self.assertEqual(json.load(r)["imagePath"], "source.png")
             finally:
                 if proc:
                     stop(proc)
