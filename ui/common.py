@@ -130,7 +130,14 @@ def job_snapshot(job):
     )
     job["files"] = {
         name: (case / name).is_file()
-        for name in ("source.png", "overlay.jpg", "mask.png", "summary.json", "execution.json")
+        for name in (
+            "source.png",
+            "overlay.jpg",
+            "mask.png",
+            "labelme.json",
+            "summary.json",
+            "execution.json",
+        )
     }
     versions = {}
     for kind, name in [("source", "source.png"), ("overlay", "overlay.jpg"), ("mask", "mask.png")]:

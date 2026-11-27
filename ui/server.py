@@ -516,7 +516,9 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 s = "No log available."
             return self.json({"log": s})
-        m = re.fullmatch(r"/api/(preview|download)/([0-9a-f]{16})/(source|overlay|mask)", path)
+        m = re.fullmatch(
+            r"/api/(preview|download)/([0-9a-f]{16})/(source|overlay|mask|labelme)", path
+        )
         if m:
             mode, job_id, kind = m.groups()
             found = get_job(job_id)
@@ -525,6 +527,10 @@ class Handler(BaseHTTPRequestHandler):
             job, case = found
             if job.get("status") != "completed":
                 return self.json({"error": "Result is not complete."}, 409)
+            if kind == "labelme":
+                if mode != "download":
+                    return self.json({"error": "Not found."}, 404)
+                return self.sendfile(case / "labelme.json", "application/json", download=True)
             src = case / (
                 {"source": "source.png", "overlay": "overlay.jpg", "mask": "mask.png"}[kind]
             )
@@ -576,9 +582,7 @@ class Handler(BaseHTTPRequestHandler):
             if n <= 0 or n > 20000:
                 raise ValueError("Invalid request size.")
             data = json.loads(self.rfile.read(n))
-            r = launch_batch(
-                data.get("maps"), data.get("workers"), data.get("mode", "initial")
-            )
+            r = launch_batch(data.get("maps"), data.get("workers"), data.get("mode", "initial"))
             return self.json(r, 202)
         except (ValueError, TypeError, json.JSONDecodeError) as e:
             return self.json({"error": str(e)}, 400)

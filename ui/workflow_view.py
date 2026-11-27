@@ -132,7 +132,13 @@ def workflow(case):
                 args = json.loads(item.get("arguments", "{}"))
             except (ValueError, TypeError):
                 pass
-            if name == "view_images":
+            call_id = item.get("call_id")
+            if name == "view_images" or (
+                name in ("record_source_batch", "view_source_details")
+                and call_id
+                and ri < len(receipts)
+                and receipts[ri].get("call_id") == call_id
+            ):
                 paths = args.get("paths", [])
                 receipt = None
                 if ri < len(receipts):
@@ -144,7 +150,9 @@ def workflow(case):
                         return (p if p.is_absolute() else case / p).resolve()
 
                     try:
-                        if [canonical(p) for p in paths] == [canonical(x["path"]) for x in images]:
+                        if name in ("record_source_batch", "view_source_details") or [
+                            canonical(p) for p in paths
+                        ] == [canonical(x["path"]) for x in images]:
                             receipt = candidate
                     except (TypeError, KeyError, ValueError):
                         pass
@@ -168,11 +176,18 @@ def workflow(case):
                     ri += 1
                 else:
                     outputs.append({"type": "missing_images", "paths": paths})
-            elif name == "run_command":
+            if name in (
+                "run_command",
+                "record_source_batch",
+                "view_source_details",
+                "submit_roads",
+            ):
                 command = args.get("command", "")
                 match = None
                 for k in range(ci, min(len(commands), ci + 2)):
-                    if commands[k].get("command") == command:
+                    if (name == "run_command" and commands[k].get("command") == command) or (
+                        call_id and commands[k].get("call_id") == call_id
+                    ):
                         match = commands[k]
                         ci = k + 1
                         break
@@ -180,7 +195,7 @@ def workflow(case):
                 outputs.append(
                     {
                         "type": "command",
-                        "command": command,
+                        "command": command if name == "run_command" else name,
                         "matched": match is not None,
                         "exit_code": result.get("exit_code"),
                         "stdout": result.get("stdout", ""),

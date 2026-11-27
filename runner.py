@@ -11,6 +11,7 @@ import math
 import os
 import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,13 +22,17 @@ from pathlib import Path
 
 from PIL import Image
 
+from export_labelme import write_mask_json
+
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT.parent
-ENGINE = ROOT / "workflow/src"
+DEFAULT_WORKFLOW = "scoped_paths_20261122"
+WORKFLOW = ROOT / "workflow"
 PYTHON = PROJECT / ".venv/bin/python"
 CASE = ROOT / "runs/NY_8_api"
 KEY = ROOT / "secrets/openai_api_key.txt"
-MODEL = "gpt-6.1-sol"
+MODEL = "gpt-6.2-sol"
+REASONING_EFFORT = "medium"
 MODES = ("initial", "max")
 MAP_NAME = "NY_8"
 MAP_SOURCE = ROOT / "maps/new_york/8.tif"
@@ -58,6 +63,21 @@ def digest(path):
     return h.hexdigest()
 
 
+def read_instructions(path, expected_sha256=None):
+    # A cloud-backed file can briefly read as zero bytes while its directory
+    # entry already advertises its full size. Retry before making an API call.
+    for attempt in range(3):
+        size = path.stat().st_size
+        data = path.read_bytes()
+        if len(data) == size and data.strip():
+            if expected_sha256 and hashlib.sha256(data).hexdigest() != expected_sha256:
+                raise ValueError(f"Prepared instructions changed: {path.name}")
+            return data.decode("utf-8")
+        if attempt < 2:
+            time.sleep(0.25 * (attempt + 1))
+    raise OSError(f"Could not read complete instructions from {path}")
+
+
 def stage():
     p = CASE / "stages.jsonl"
     return (
@@ -68,11 +88,15 @@ def stage():
 
 
 def setup(mode="initial"):
+    street_policy = read_instructions(ROOT / "workflow/street_policy.txt").strip()
+    template = read_instructions(ROOT / "workflow/prompt.txt")
+    if "{street_policy}" not in template:
+        raise ValueError("Workflow prompt is missing its street policy field")
     CASE.mkdir(parents=True, exist_ok=False)
     start = time.monotonic()
-    shutil.copytree(ENGINE, CASE / "src", ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copy2(ROOT / "workflow/core.py", CASE / "core.py")
-    shutil.copy2(ROOT / "workflow/conditional.py", CASE / "conditional.py")
+    shutil.copytree(WORKFLOW / "src", CASE / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    for name in ("core.py", "conditional.py", "initial_tools.py", "api_tools.json"):
+        shutil.copy2(WORKFLOW / name, CASE / name)
     source = MAP_SOURCE
     with Image.open(source) as im:
         rgb = im.convert("RGB")
@@ -88,8 +112,12 @@ def setup(mode="initial"):
             "variant": "conditional_source_batch_api",
             "size_wh": size,
             "model": MODEL,
-            "effort": "high",
+            "effort": REASONING_EFFORT,
             "mode": mode,
+            "source_batch_tools": True,
+            "native_detail_tool": True,
+            "workflow_version": DEFAULT_WORKFLOW,
+            "street_policy": street_policy,
             "source_original": str(source),
         },
     )
@@ -117,7 +145,14 @@ def setup(mode="initial"):
         for i in range(0, len(state["tiles"]), 4)
     ]
     save(CASE / "source_batches.json", batches)
-    original = (ROOT / "workflow/prompt.txt").read_text().format(py=str(PYTHON))
+    original = template.format(
+        py=str(PYTHON),
+        model=MODEL,
+        effort=REASONING_EFFORT,
+        width=size[0],
+        height=size[1],
+        street_policy=street_policy,
+    )
     if mode == "initial":
         initial, marker, _ = original.partition("\n3 FIRST_REVIEW:")
         if not marker:
@@ -127,12 +162,7 @@ def setup(mode="initial"):
             "The runner exports the initial mask and overlay after checking source coverage. "
             "Do not start visual review or build another revision.\n"
         )
-    original = original.replace(
-        "In a functions.exec call, await Promise.all of tools.view_image for that group's paths then emit each returned image with image(result.image_url). Never print image URLs/base64 as text. This is concurrent local image loading, not multiple model agents.",
-        "Call the view_images function for that group, up to four image paths. It returns actual image content and metadata. Call run_command to inspect and write files or run conditional.py.",
-    )
-    prefix = "You are running through OpenAI Responses API. Use tools run_command and view_images, not Codex-only tools. Your current working directory is the independent case; no other experiment or historical labels are accessible. Never inspect credentials or network. All tool results are returned to you. You MUST act on image evidence; do not invent observations.\n\n"
-    (CASE / "prompt.txt").write_text(prefix + original)
+    (CASE / "prompt.txt").write_text(original)
     save(
         CASE / "setup.json",
         {
@@ -140,6 +170,10 @@ def setup(mode="initial"):
             "tiles": len(state["tiles"]),
             "source_sha256": digest(CASE / "source.png"),
             "original_sha256": digest(source),
+            "prompt_sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+            "agent": {"model": MODEL, "effort": REASONING_EFFORT},
+            "source_tools_sha256": digest(CASE / "initial_tools.py"),
+            "api_tools_sha256": digest(CASE / "api_tools.json"),
             "engine_files": {p.name: digest(p) for p in sorted((CASE / "src").glob("*.py"))},
         },
     )
@@ -175,7 +209,7 @@ def sandbox_profile():
     )
 
 
-def run_command(command):
+def run_command(command, *, stdin=None, call_id=None):
     env = {
         k: v
         for k, v in os.environ.items()
@@ -188,6 +222,7 @@ def run_command(command):
             ["/usr/bin/sandbox-exec", "-p", sandbox_profile(), "/bin/zsh", "-c", command],
             cwd=CASE,
             env=env,
+            input=stdin,
             capture_output=True,
             text=True,
             timeout=600,
@@ -204,6 +239,7 @@ def run_command(command):
         {
             "stage": stage(),
             "tool": "run_command",
+            "call_id": call_id,
             "command": command,
             "seconds": time.monotonic() - start,
             "exit_code": result.get("exit_code"),
@@ -288,7 +324,7 @@ def snapshot_artifacts(before, seq, call_id):
         print("Could not preserve an agent output snapshot: " + type(e).__name__, flush=True)
 
 
-def image_output(paths, record=True):
+def image_output(paths, record=True, call_id=None):
     if not 1 <= len(paths) <= 4:
         raise ValueError("one to four images per call")
     result = []
@@ -324,7 +360,9 @@ def image_output(paths, record=True):
         if record:
             snapshots.append((meta, data))
     if record:
-        append(CASE / "image_receipts.jsonl", {"stage": stage(), "images": records})
+        append(
+            CASE / "image_receipts.jsonl", {"stage": stage(), "images": records, "call_id": call_id}
+        )
         try:
             directory = CASE / "image_snapshots"
             directory.mkdir(exist_ok=True)
@@ -527,6 +565,31 @@ def audit():
     return summary
 
 
+def save_junction_previews(locations):
+    if not locations:
+        return
+    with Image.open(CASE / "source.png") as source, Image.open(CASE / "overlay.jpg") as overlay:
+        for i, finding in enumerate(locations, 1):
+            xs, ys = zip(*finding["native_triangle"])
+            pad = max(1, max(max(xs) - min(xs), max(ys) - min(ys)) // 4)
+            box = (
+                max(0, min(xs) - pad),
+                max(0, min(ys) - pad),
+                min(source.width, max(xs) + pad + 1),
+                min(source.height, max(ys) + pad + 1),
+            )
+            left = source.crop(box)
+            right = overlay.crop(box)
+            left.thumbnail((900, 900))
+            right.thumbnail((900, 900))
+            pair = Image.new("RGB", (2 * left.width + 2, left.height), "white")
+            pair.paste(left, (0, 0))
+            pair.paste(right, (left.width + 2, 0))
+            finding["preview"] = f"junction_check_{i}.jpg"
+            finding["native_box"] = list(box)
+            pair.save(CASE / finding["preview"], quality=93)
+
+
 def publish_initial(revision, coverage, config):
     mask = revision / "mask.png"
     with Image.open(mask) as image:
@@ -535,6 +598,8 @@ def publish_initial(revision, coverage, config):
         image.verify()
     for name in ("mask.png", "overlay.jpg", "overview.jpg"):
         shutil.copyfile(revision / name, CASE / name)
+    proposal = json.loads((revision / "proposal.json").read_text())
+    save_junction_previews(proposal.get("review_locations", []))
     save(
         CASE / "summary.json",
         {
@@ -542,9 +607,20 @@ def publish_initial(revision, coverage, config):
             "mode": "initial",
             "selected_revision": revision.name,
             "review_mode": "initial_only",
+            **(
+                {"review_locations": proposal["review_locations"]}
+                if "review_locations" in proposal
+                else {}
+            ),
+            "surface_check": None,
             "source_tiles": coverage["expected_tiles"],
             "mask_sha256": digest(mask),
-            "notice": "Initial street mask rendered after source review. Visual QA was skipped.",
+            "notice": "Initial street mask rendered after source review. Full-map MAX review was skipped.",
+            "geometry_review": (
+                json.loads((CASE / "initial_build_receipt.json").read_text())
+                if (CASE / "initial_build_receipt.json").is_file()
+                else None
+            ),
         },
     )
     coverage["summary_exists"] = True
@@ -582,7 +658,11 @@ def recovery_continuation():
         raise ValueError("Failure stage no longer matches the case")
     cfg = json.loads((CASE / "config.json").read_text())
     setup = json.loads((CASE / "setup.json").read_text())
-    if cfg.get("map") != MAP_NAME or cfg.get("model") != MODEL or cfg.get("effort") != "high":
+    saved_agent = setup.get("agent", {"model": "gpt-6.1-sol", "effort": "high"})
+    if cfg.get("map") != MAP_NAME or saved_agent != {
+        "model": cfg.get("model"),
+        "effort": cfg.get("effort"),
+    }:
         raise ValueError("Map or model configuration changed")
     if digest(CASE / "source.png") != setup.get("source_sha256"):
         raise ValueError("Source image changed")
@@ -596,8 +676,19 @@ def recovery_continuation():
     for name, expected in engines.items():
         if digest(CASE / "src" / name) != expected:
             raise ValueError("Renderer source changed: " + name)
-    for name in ("core.py", "conditional.py"):
-        if digest(CASE / name) != digest(ROOT / "workflow" / name):
+    helpers = ["core.py", "conditional.py"]
+    if setup.get("source_tools_sha256"):
+        if digest(CASE / "initial_tools.py") != setup["source_tools_sha256"]:
+            raise ValueError("Saved source tools changed")
+    elif cfg.get("source_batch_tools"):
+        helpers.append("initial_tools.py")
+    if (
+        setup.get("api_tools_sha256")
+        and digest(CASE / "api_tools.json") != setup["api_tools_sha256"]
+    ):
+        raise ValueError("Saved API tool definitions changed")
+    for name in helpers:
+        if digest(CASE / name) != digest(WORKFLOW / name):
             raise ValueError("Workflow tool changed: " + name)
     request_path = CASE / "requests.jsonl"
     rows = (
@@ -676,13 +767,26 @@ def save_rate_checkpoint(seq, prev, inputs, before):
     os.replace(tmp, p)
 
 
-def build_response_request(inputs, previous_response_id):
+def build_response_request(
+    inputs,
+    previous_response_id,
+    *,
+    model=MODEL,
+    effort=REASONING_EFFORT,
+    mode="max",
+    case_tools=None,
+):
     """Build the next Responses request without changing the agent contract."""
+    tools = (
+        TOOLS
+        if case_tools is None
+        else [tool for tool in case_tools if mode == "max" or tool["name"] != "run_command"]
+    )
     body = {
-        "model": MODEL,
-        "reasoning": {"effort": "high"},
+        "model": model,
+        "reasoning": {"effort": effort},
         "input": inputs,
-        "tools": TOOLS,
+        "tools": tools,
         "parallel_tool_calls": False,
         "store": True,
         "max_output_tokens": 32768,
@@ -697,12 +801,31 @@ def execute_tool_call(call, sequence):
     try:
         args = json.loads(call["arguments"])
         name = call["name"]
-        if name == "run_command":
+        if name in ("run_command", "record_source_batch", "view_source_details", "submit_roads"):
             try:
                 before_artifacts = artifact_state()
             except Exception:
                 before_artifacts = {}
-            output = json.dumps(run_command(args["command"]))
+            if name == "run_command":
+                output = json.dumps(run_command(args["command"]))
+            else:
+                result = run_command(
+                    f"{shlex.quote(str(PYTHON))} initial_tools.py {name}",
+                    stdin=json.dumps(args),
+                    call_id=call["call_id"],
+                )
+                if result.get("exit_code") != 0:
+                    output = json.dumps(
+                        {"error": result.get("stderr") or result.get("error") or result}
+                    )
+                else:
+                    reply = json.loads(result["stdout"].splitlines()[-1])
+                    if "tiles" in reply:
+                        paths = [tile["path"] for tile in reply["tiles"]]
+                        output = [{"type": "input_text", "text": json.dumps(reply)}]
+                        output.extend(image_output(paths, call_id=call["call_id"]))
+                    else:
+                        output = json.dumps(reply)
             snapshot_artifacts(before_artifacts, sequence, call["call_id"])
         elif name == "view_images":
             output = image_output(args["paths"])
@@ -718,6 +841,8 @@ def run(resume=False):
         raise RuntimeError("Case already has API requests; choose a new --run-id.")
     config = json.loads((CASE / "config.json").read_text())
     mode = config.get("mode", "max")
+    scoped_paths = config.get("workflow_version") == DEFAULT_WORKFLOW
+    case_tools = json.loads((CASE / "api_tools.json").read_text()) if scoped_paths else None
     initial_revision = CASE / "run/maps" / MAP_NAME / "tools/inventory_r1"
     if resume:
         recovered = recovery_continuation()
@@ -726,7 +851,16 @@ def run(resume=False):
         i = recovered["completed_requests"]
     else:
         prev = None
-        inputs = [{"role": "user", "content": (CASE / "prompt.txt").read_text()}]
+        setup_path = CASE / "setup.json"
+        setup_record = json.loads(setup_path.read_text()) if setup_path.is_file() else {}
+        inputs = [
+            {
+                "role": "user",
+                "content": read_instructions(
+                    CASE / "prompt.txt", setup_record.get("prompt_sha256")
+                ),
+            }
+        ]
         i = 0
     key = os.environ.get("OPENAI_API_KEY") or KEY.read_text().strip()
     if not key:
@@ -755,7 +889,14 @@ def run(resume=False):
         i += 1
         before = stage()
         t = time.monotonic()
-        body = build_response_request(inputs, prev)
+        body = build_response_request(
+            inputs,
+            prev,
+            model=config["model"],
+            effort=config["effort"],
+            mode=mode,
+            case_tools=case_tools,
+        )
         if first_recovery_request:
             save(
                 CASE / "recovery_inflight.json",
@@ -774,9 +915,11 @@ def run(resume=False):
             {
                 "seq": i,
                 "stage": before,
+                "scope": before,
                 "seconds": time.monotonic() - t,
                 "response_id": r.get("id"),
                 "model": r.get("model"),
+                "effort": config["effort"],
                 "status": r.get("status"),
                 "usage": r.get("usage", {}),
             },
@@ -794,6 +937,8 @@ def run(resume=False):
             (initial_revision / name).is_file()
             for name in ("mask.png", "overlay.jpg", "overview.jpg", "proposal.json")
         )
+        if initial_built and config.get("source_batch_tools"):
+            initial_built = (CASE / "initial_build_receipt.json").is_file()
         if initial_built or not calls:
             coverage = audit()
             if mode == "initial":
@@ -802,7 +947,12 @@ def run(resume=False):
                     break
                 instruction = (
                     "View missing original tiles during source_review and complete the "
-                    "inventory_r1 build. Initial Mask mode ends there."
+                    "inventory_r1 build. "
+                    + (
+                        "Initial Mask mode ends there."
+                        if scoped_paths
+                        else "Follow the next decision requested by the runner."
+                    )
                 )
             elif (
                 coverage["summary_exists"]
@@ -811,7 +961,9 @@ def run(resume=False):
             ):
                 break
             else:
-                instruction = "Inspect missing tiles or complete finish, without inventing observations."
+                instruction = (
+                    "Inspect missing tiles or complete finish, without inventing observations."
+                )
             inputs.append(
                 {
                     "role": "user",
@@ -831,6 +983,7 @@ def run(resume=False):
             )
         if i >= 180:
             raise RuntimeError("180-request limit reached; preserve partial artifacts")
+    write_mask_json(CASE / "mask.png", CASE / "source.png", CASE / "labelme.json")
     save(
         CASE / "execution.json",
         {
@@ -844,9 +997,11 @@ def run(resume=False):
         },
     )
     print(
-        "initial mask complete"
-        if mode == "initial"
-        else "workflow complete; visual independent review still required",
+        (
+            "initial mask complete"
+            if mode == "initial"
+            else "workflow complete; visual independent review still required"
+        ),
         flush=True,
     )
 

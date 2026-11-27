@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image,ImageDraw
 import workflow as wf
 from corridor import _path
+from junction_checks import possible_junction_gaps
 Image.MAX_IMAGE_PIXELS=None
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -88,6 +89,7 @@ def build(name,variant='balanced',revision='r1'):
   border=set(np.unique(np.concatenate([labels[0],labels[-1],labels[:,0],labels[:,-1]])))
   for j in range(1,count):
    if j not in border and components[j,cv2.CC_STAT_AREA]<=int(d['fill_enclosed_holes_max_area']):mask[labels==j]=255
+ review_locations = possible_junction_gaps(mask, gray, d['roads'], d.get('exclusions', []))
  for x in d.get('exclusions',[]):
   pts=x['polygon'];edges=[]
   for j,a in enumerate(pts):
@@ -148,7 +150,7 @@ def build(name,variant='balanced',revision='r1'):
     cols=xs[insets>offset];ys=np.maximum(bottom[cols]-offset,0)
     mask[ys,cols]=0
   Image.fromarray(paper).save(out/'paper.png')
- Image.fromarray(mask).save(out/'mask.png');write(out/'proposal.json',{'source_sha256':s['source_sha256'],'candidate_before_sha256':s['candidate_sha256'],'agent_input_sha256':wf.sha(ROOT/'reviews'/f'{name}_source.json'),'variant':variant,'roads':stats})
+ Image.fromarray(mask).save(out/'mask.png');write(out/'proposal.json',{'source_sha256':s['source_sha256'],'candidate_before_sha256':s['candidate_sha256'],'agent_input_sha256':wf.sha(ROOT/'reviews'/f'{name}_source.json'),'variant':variant,'roads':stats,'review_locations':review_locations})
  a=rgb.copy();ix=mask>0;a[ix]=(a[ix]*.48+np.array([20,140,240])*.52).astype(np.uint8)
  Image.fromarray(a).save(out/'overlay.jpg',quality=92)
  im=Image.fromarray(a);im.thumbnail((1600,1800));im.save(out/'overview.jpg',quality=93)
